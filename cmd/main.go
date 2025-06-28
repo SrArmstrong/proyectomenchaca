@@ -35,11 +35,13 @@ func main() {
 		log.Fatalf("Error al configurar la conexión: %v", err)
 	}
 
+	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
 	// Configuración recomendada para Supabase
-	config.MaxConns = 5 // Límite para el plan gratuito
-	config.MinConns = 1 // Conexiones mínimas
-	config.HealthCheckPeriod = 1 * time.Minute
-	config.MaxConnLifetime = 30 * time.Minute
+	config.MaxConns = 5                       // Límite para el plan gratuito
+	config.MinConns = 1                       // Conexiones mínimas
+	config.MaxConnIdleTime = 30 * time.Second // Cierra conexiones inactivas rápidamente
+	config.MaxConnLifetime = 10 * time.Minute // Recicla conexiones periódicamente
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		_, err := conn.Exec(ctx, "SET statement_timeout = 30000")
 		return err
@@ -67,6 +69,8 @@ func main() {
 	}
 	defer pool.Close()
 
+	handlers.SetDB(pool)
+
 	// Verificar conexión
 	var version string
 	if err := pool.QueryRow(context.Background(), "SELECT version()").Scan(&version); err != nil {
@@ -81,13 +85,14 @@ func main() {
 	app.Use(middleware.Logger())
 
 	// Rutas públicas
-	app.Get("/hola", handlers.Saludo)
-	app.Post("/register", handlers.Register)
-	app.Post("/login", handlers.Login)
+	app.Post("/register", handlers.Register) // Registrar usuario
+	app.Post("/login", handlers.Login)       // Logear usuario
+	//app.Get("/consultorios", handlers.GetConsultoriosDisponibles)
+	//app.Get("/horarios", handlers.GetHorariosDisponibles)
 
 	// Rutas protegidas (requieren JWT)
-	app.Get("/info_system", middleware.JWTProtected(), handlers.SystemInfo)
-	app.Get("/login", middleware.JWTProtected(), handlers.LoginInfo)
+	//app.Get("/info_system", middleware.JWTProtected(), handlers.SystemInfo)
+	app.Get("/saludo", middleware.JWTProtected(), handlers.Saludo)
 
 	// Iniciar servidor
 	port := os.Getenv("PORT")

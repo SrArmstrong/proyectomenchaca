@@ -14,3 +14,27 @@ go run cmd/main.go
 ## Apis web:
 
 go get github.com/gofiber/fiber/v2
+
+## Endpoints
+
+### Logeo
+
+POST => http://127.0.0.1:6543/login
+
+{
+    "correo":"",
+    "password":""
+}
+
+### Registro
+
+POST => http://127.0.0.1:6543/register
+
+{
+    "nombre":"",
+    "rol":"",
+    "correo":"",
+    "telefono":"",
+    "especialidad":"",
+    "password":""
+}

@@ -1,42 +1,225 @@
 package handlers
 
 import (
+	"context"
 	"proyectomenchaca/internal/utils"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
-type Usuario struct {
-	Nombre   string `json:"nombre"`
+type UsuarioLogin struct {
+	Correo   string `json:"correo"`
 	Password string `json:"password"`
 }
 
-func Register(c *fiber.Ctx) error {
-	u := new(Usuario)
-	if err := c.BodyParser(u); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Datos inválidos"})
-	}
-	return c.JSON(fiber.Map{
-		"mensaje": "Usuario Registrado",
-		"usuario": u.Nombre,
-	})
+type UsuarioRegistro struct {
+	Nombre       string `json:"nombre"`
+	Rol          string `json:"rol"`
+	Correo       string `json:"correo"`
+	Telefono     string `json:"telefono"`
+	Especialidad string `json:"especialidad"`
+	Password     string `json:"password"`
+}
+
+// UsuarioBD representa lo que viene de la base de datos
+type UsuarioBD struct {
+	ID       int
+	Nombre   string
+	Password string
+	Rol      string
+}
+
+var DB *pgxpool.Pool
+
+func SetDB(pool *pgxpool.Pool) {
+	DB = pool
 }
 
 func Login(c *fiber.Ctx) error {
-	u := new(Usuario)
+	var datos UsuarioLogin
 
-	if err := c.BodyParser(u); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Datos inválidos"})
+	if err := c.BodyParser(&datos); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Datos inválidos",
+		})
 	}
-	if u.Nombre == "admin" && u.Password == "123456" {
-		token, _ := utils.CrearToken(u.Nombre)
-		return c.JSON(fiber.Map{"token": token})
+
+	// Buscar el usuario por correo
+	var usuario UsuarioBD
+	query := `SELECT id_usuario, nombre, password, rol FROM usuarios WHERE correo=$1`
+	err := DB.QueryRow(context.Background(), query, datos.Correo).Scan(
+		&usuario.ID,
+		&usuario.Nombre,
+		&usuario.Password,
+		&usuario.Rol,
+	)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Credenciales inválidas",
+		})
 	}
-	return c.Status(401).JSON(fiber.Map{"error": "Credenciales inválidas"})
+
+	// Comparar contraseñas (texto plano, si usas hash dime)
+	if err := bcrypt.CompareHashAndPassword([]byte(usuario.Password), []byte(datos.Password)); err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Credenciales inválidas",
+		})
+	}
+
+	// Crear token JWT
+	token, err := utils.CrearToken(usuario.Nombre, usuario.Rol)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "No se pudo generar el token",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"token":  token,
+		"nombre": usuario.Nombre,
+		"rol":    usuario.Rol,
+	})
+}
+
+func Register(c *fiber.Ctx) error {
+	var nuevo UsuarioRegistro
+
+	if err := c.BodyParser(&nuevo); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Datos inválidos",
+		})
+	}
+
+	// Validación mínima
+	if nuevo.Nombre == "" || nuevo.Correo == "" || nuevo.Password == "" || nuevo.Rol == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Faltan campos requeridos",
+		})
+	}
+
+	// Verificar si el correo ya existe
+	var existe int
+	err := DB.QueryRow(context.Background(),
+		"SELECT COUNT(*) FROM usuarios WHERE correo=$1", nuevo.Correo).Scan(&existe)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al verificar usuario"})
+	}
+	if existe > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": "Ya existe un usuario con ese correo",
+		})
+	}
+
+	// Hashear la contraseña
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(nuevo.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al encriptar la contraseña",
+		})
+	}
+
+	// Insertar usuario en la base de datos
+	query := `INSERT INTO usuarios (nombre, rol, correo, telefono, especialidad, password)
+	          VALUES ($1, $2, $3, $4, $5, $6)`
+
+	_, err = DB.Exec(context.Background(), query,
+		nuevo.Nombre, nuevo.Rol, nuevo.Correo, nuevo.Telefono, nuevo.Especialidad, string(hashedPassword))
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al registrar el usuario",
+		})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"mensaje": "Usuario registrado correctamente",
+		"correo":  nuevo.Correo,
+	})
+}
+
+func UpdateUsuario(c *fiber.Ctx) error {
+	id := c.Params("id")
+
+	var datos UsuarioRegistro
+	if err := c.BodyParser(&datos); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Datos inválidos",
+		})
+	}
+
+	// Validación mínima
+	if datos.Nombre == "" || datos.Rol == "" || datos.Correo == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Faltan campos requeridos",
+		})
+	}
+
+	// Si se proporciona una nueva contraseña, hashearla
+	var hashedPassword string
+	if datos.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(datos.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "No se pudo encriptar la contraseña",
+			})
+		}
+		hashedPassword = string(hash)
+	}
+
+	// Actualizar usuario
+	query := `
+		UPDATE usuarios
+		SET nombre=$1, rol=$2, correo=$3, telefono=$4, especialidad=$5
+		` + func() string {
+		if hashedPassword != "" {
+			return `, password=$6 WHERE id_usuario=$7`
+		}
+		return `WHERE id_usuario=$6`
+	}()
+
+	var err error
+	if hashedPassword != "" {
+		_, err = DB.Exec(context.Background(), query,
+			datos.Nombre, datos.Rol, datos.Correo, datos.Telefono, datos.Especialidad, hashedPassword, id)
+	} else {
+		_, err = DB.Exec(context.Background(), query,
+			datos.Nombre, datos.Rol, datos.Correo, datos.Telefono, datos.Especialidad, id)
+	}
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al actualizar usuario",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"mensaje": "Usuario actualizado exitosamente",
+	})
+}
+
+func DeleteUsuario(c *fiber.Ctx) error {
+	id := c.Params("id")
+
+	_, err := DB.Exec(context.Background(), "DELETE FROM usuarios WHERE id_usuario=$1", id)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al eliminar el usuario",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"mensaje": "Usuario eliminado exitosamente",
+	})
 }
 
 func LoginInfo(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"mensaje": "Estás autenticado con exito",
 	})
+}
+
+func Saludo(c *fiber.Ctx) error {
+	return c.SendString("Hola mundo desde Fiber")
 }
