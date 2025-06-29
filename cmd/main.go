@@ -37,7 +37,7 @@ func main() {
 
 	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	// Configuración recomendada para Supabase
+	// Configuración para Supabase
 	config.MaxConns = 5                       // Límite para el plan gratuito
 	config.MinConns = 1                       // Conexiones mínimas
 	config.MaxConnIdleTime = 30 * time.Second // Cierra conexiones inactivas rápidamente
@@ -87,12 +87,57 @@ func main() {
 	// Rutas públicas
 	app.Post("/register", handlers.Register) // Registrar usuario
 	app.Post("/login", handlers.Login)       // Logear usuario
-	//app.Get("/consultorios", handlers.GetConsultoriosDisponibles)
-	//app.Get("/horarios", handlers.GetHorariosDisponibles)
+	app.Get("/consultorios", handlers.GetConsultoriosDisponibles)
+	app.Get("/horarios", handlers.GetHorariosDisponibles)
 
-	// Rutas protegidas (requieren JWT)
-	//app.Get("/info_system", middleware.JWTProtected(), handlers.SystemInfo)
-	app.Get("/saludo", middleware.JWTProtected(), handlers.Saludo)
+	// Grupo de rutas protegidas (requieren JWT)
+	api := app.Group("/api", middleware.JWTProtected())
+
+	// Grupo de rutas accesibles solo para el admin
+	admin := api.Group("", middleware.OnlyAdmin())
+
+	// Grupo de rutas accesibles para médicos y admin
+	medico := api.Group("", middleware.OnlyMedicoOrAdmin())
+
+	// Rutas de usuarios (solo admin puede ver o editar usuarios)
+	admin.Get("/usuarios/:id", handlers.GetUsuario)
+	admin.Put("/usuarios/:id", handlers.UpdateUsuario)
+	admin.Delete("/usuarios/:id", handlers.DeleteUsuario)
+
+	// Rutas de expedientes (solo medico puede ver o editar usuarios)
+	medico.Post("/expedientes", handlers.CreateExpediente)
+	medico.Put("/expedientes/:id", handlers.UpdateExpediente)
+	medico.Delete("/expedientes/:id", handlers.DeleteExpediente)
+
+	// Rutas de expedientes que podría acceder un paciente solo para sí mismo
+	api.Get("/expedientes/:id", handlers.GetExpediente) // Aquí en handler valida que el ID sea del propio usuario si es paciente
+
+	// Rutas de consultorios (solo admin o médicos)
+	medico.Post("/consultorios", handlers.CreateConsultorio)
+	medico.Get("/consultorios/:id", handlers.GetConsultorio)
+	medico.Put("/consultorios/:id", handlers.UpdateConsultorio)
+	medico.Delete("/consultorios/:id", handlers.DeleteConsultorio)
+
+	// Rutas de consultas
+	medico.Post("/consultas", handlers.CreateConsulta)
+	medico.Put("/consultas/:id", handlers.UpdateConsulta)
+	medico.Delete("/consultas/:id", handlers.DeleteConsulta)
+	medico.Get("/consultas/:id", handlers.GetConsulta) // El médico o el paciente pueden consultar, puede validarse en handler
+
+	// Rutas de horarios
+	medico.Post("/horarios", handlers.CreateHorario)
+	medico.Put("/horarios/:id", handlers.UpdateHorario)
+	medico.Delete("/horarios/:id", handlers.DeleteHorario)
+	medico.Get("/horarios/:id", handlers.GetHorario)
+
+	// Rutas de recetas
+	medico.Post("/recetas", handlers.CreateReceta)
+	medico.Put("/recetas/:id", handlers.UpdateReceta)
+	medico.Delete("/recetas/:id", handlers.DeleteReceta)
+	medico.Get("/recetas/:id", handlers.GetReceta)
+
+	// Ruta de prueba
+	api.Get("/saludo", middleware.OnlyAdmin(), handlers.Saludo)
 
 	// Iniciar servidor
 	port := os.Getenv("PORT")

@@ -37,6 +37,7 @@ func SetDB(pool *pgxpool.Pool) {
 	DB = pool
 }
 
+// Obtiene la información de un usuario por su ID
 func Login(c *fiber.Ctx) error {
 	var datos UsuarioLogin
 
@@ -83,6 +84,7 @@ func Login(c *fiber.Ctx) error {
 	})
 }
 
+// Obtiene la información de un usuario por su ID
 func Register(c *fiber.Ctx) error {
 	var nuevo UsuarioRegistro
 
@@ -139,6 +141,46 @@ func Register(c *fiber.Ctx) error {
 	})
 }
 
+// Obtiene la información de un usuario por su ID
+func GetUsuario(c *fiber.Ctx) error {
+	id := c.Params("id")
+
+	// Definimos una estructura más completa para devolver todos los campos del usuario
+	type UsuarioResponse struct {
+		ID           int    `json:"id_usuario"`
+		Nombre       string `json:"nombre"`
+		Rol          string `json:"rol"`
+		Correo       string `json:"correo"`
+		Telefono     string `json:"telefono"`
+		Especialidad string `json:"especialidad"`
+	}
+
+	var usuario UsuarioResponse
+
+	// Consulta para obtener todos los campos del usuario excepto la contraseña
+	query := `SELECT id_usuario, nombre, rol, correo, telefono, especialidad 
+              FROM usuarios WHERE id_usuario=$1`
+
+	err := DB.QueryRow(context.Background(), query, id).Scan(
+		&usuario.ID,
+		&usuario.Nombre,
+		&usuario.Rol,
+		&usuario.Correo,
+		&usuario.Telefono,
+		&usuario.Especialidad,
+	)
+
+	if err != nil {
+		// Si no se encuentra el usuario, devolvemos un error 404
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Usuario no encontrado",
+		})
+	}
+
+	return c.JSON(usuario)
+}
+
+// Obtiene la información de un usuario por su ID
 func UpdateUsuario(c *fiber.Ctx) error {
 	id := c.Params("id")
 
@@ -199,6 +241,7 @@ func UpdateUsuario(c *fiber.Ctx) error {
 	})
 }
 
+// Obtiene la información de un usuario por su ID
 func DeleteUsuario(c *fiber.Ctx) error {
 	id := c.Params("id")
 
@@ -214,12 +257,14 @@ func DeleteUsuario(c *fiber.Ctx) error {
 	})
 }
 
+// Obtiene la información de un usuario por su ID
 func LoginInfo(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"mensaje": "Estás autenticado con exito",
 	})
 }
 
+// Obtiene la información de un usuario por su ID
 func Saludo(c *fiber.Ctx) error {
 	return c.SendString("Hola mundo desde Fiber")
 }
