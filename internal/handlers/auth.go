@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,64 +24,43 @@ func SetDB(pool *pgxpool.Pool) {
 // Obtiene la información de un usuario por su ID
 func Login(c *fiber.Ctx) error {
 	var datos models.UsuarioLogin
-
 	if err := c.BodyParser(&datos); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Datos inválidos: " + err.Error(),
-		})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
 	}
 
-	// Obtener dirección IP y User-Agent
 	ip := c.IP()
 	userAgent := c.Get("User-Agent")
 
-	// Buscar usuario
 	var usuario models.UsuarioBD
 	err := DB.QueryRow(context.Background(),
-		`SELECT id_usuario, nombre, password, rol 
+		`SELECT id_usuario, nombre, password, rol, secret_totp 
          FROM usuarios WHERE correo = $1`, datos.Correo).Scan(
-		&usuario.ID, &usuario.Nombre, &usuario.Password, &usuario.Rol)
+		&usuario.ID, &usuario.Nombre, &usuario.Password, &usuario.Rol, &usuario.SecretTOTP)
+
+	if !totp.Validate(datos.CodigoTOTP, usuario.SecretTOTP) {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Código TOTP inválido"})
+	}
 
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": "Credenciales inválidas",
-		})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Credenciales inválidas"})
 	}
 
-	// Verificar contraseña
 	if err := bcrypt.CompareHashAndPassword([]byte(usuario.Password), []byte(datos.Password)); err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": "Credenciales inválidas",
-		})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Credenciales inválidas"})
 	}
 
-	// Generar tokens
 	accessToken, refreshToken, err := utils.CrearTokens(usuario.ID, usuario.Nombre, usuario.Rol)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Error generando tokens: " + err.Error(),
-		})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error generando tokens"})
 	}
 
-	// Guardar refresh token (adaptado a tu estructura)
 	_, err = DB.Exec(context.Background(),
-		`INSERT INTO refresh_tokens 
-         (usuario_id, token, fecha_creacion, fecha_expiracion, revocado, direccion_ip, user_agent)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		usuario.ID,
-		refreshToken,
-		time.Now(),                     // fecha_creacion
-		time.Now().Add(7*24*time.Hour), // fecha_expiracion (7 días)
-		false,                          // revocado
-		ip,                             // direccion_ip
-		userAgent,                      // user_agent
-	)
+		`INSERT INTO refresh_tokens (usuario_id, token, fecha_creacion, fecha_expiracion, revocado, direccion_ip, user_agent)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		usuario.ID, refreshToken, time.Now(), time.Now().Add(7*24*time.Hour), false, ip, userAgent)
 
 	if err != nil {
-		log.Printf("Error SQL: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Error al guardar sesión: " + err.Error(),
-		})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar sesión"})
 	}
 
 	return c.JSON(models.TokenPair{
@@ -218,29 +198,36 @@ func Register(c *fiber.Ctx) error {
 	var existe int
 	err := DB.QueryRow(context.Background(),
 		"SELECT COUNT(*) FROM usuarios WHERE correo=$1", nuevo.Correo).Scan(&existe)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al verificar usuario"})
+	if err != nil || existe > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Usuario ya existe"})
 	}
-	if existe > 0 {
-		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
-			"error": "Ya existe un usuario con ese correo",
+
+	// Generar secreto TOTP
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "MiAppSegura",
+		AccountName: nuevo.Correo,
+	})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "No se pudo generar el TOTP",
 		})
 	}
+	secret := key.Secret()
 
 	// Hashear la contraseña
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(nuevo.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Error al encriptar la contraseña",
+			"error": "Error al encriptar contraseña",
 		})
 	}
 
-	// Insertar usuario en la base de datos
-	query := `INSERT INTO usuarios (nombre, rol, correo, telefono, especialidad, password)
-	          VALUES ($1, $2, $3, $4, $5, $6)`
+	// Insertar usuario
+	query := `INSERT INTO usuarios (nombre, rol, correo, telefono, especialidad, password, secret_totp)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
 	_, err = DB.Exec(context.Background(), query,
-		nuevo.Nombre, nuevo.Rol, nuevo.Correo, nuevo.Telefono, nuevo.Especialidad, string(hashedPassword))
+		nuevo.Nombre, nuevo.Rol, nuevo.Correo, nuevo.Telefono, nuevo.Especialidad, string(hashedPassword), secret)
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -248,9 +235,12 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
+	// Regresar la URL para escanear con la app de autenticación
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"mensaje": "Usuario registrado correctamente",
-		"correo":  nuevo.Correo,
+		"mensaje":     "Usuario registrado correctamente",
+		"correo":      nuevo.Correo,
+		"secret":      secret,
+		"otpauth_url": key.URL(), // Puedes generar el QR con esta URL si luego agregas interfaz
 	})
 }
 
