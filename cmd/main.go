@@ -85,13 +85,17 @@ func main() {
 	app.Use(middleware.Logger())
 
 	// Rutas públicas
-	app.Post("/register", handlers.Register) // Registrar usuario
-	app.Post("/login", handlers.Login)       // Logear usuario
+	app.Post("/register", handlers.Register)    // Registrar usuario
+	app.Post("/login", handlers.Login)          // Logear usuario
+	app.Post("/refresh", handlers.RefreshToken) // Refrescar token
 	app.Get("/consultorios", handlers.GetConsultoriosDisponibles)
 	app.Get("/horarios", handlers.GetHorariosDisponibles)
 
 	// Grupo de rutas protegidas (requieren JWT)
 	api := app.Group("/api", middleware.JWTProtected())
+
+	// Ruta de logout
+	api.Post("/logout", handlers.Logout)
 
 	// Grupo de rutas accesibles solo para el admin
 	admin := api.Group("", middleware.OnlyAdmin())

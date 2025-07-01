@@ -2,34 +2,17 @@ package handlers
 
 import (
 	"context"
+	"log"
+	"proyectomenchaca/internal/models"
 	"proyectomenchaca/internal/utils"
+	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
-
-type UsuarioLogin struct {
-	Correo   string `json:"correo"`
-	Password string `json:"password"`
-}
-
-type UsuarioRegistro struct {
-	Nombre       string `json:"nombre"`
-	Rol          string `json:"rol"`
-	Correo       string `json:"correo"`
-	Telefono     string `json:"telefono"`
-	Especialidad string `json:"especialidad"`
-	Password     string `json:"password"`
-}
-
-// UsuarioBD representa lo que viene de la base de datos
-type UsuarioBD struct {
-	ID       int
-	Nombre   string
-	Password string
-	Rol      string
-}
 
 var DB *pgxpool.Pool
 
@@ -39,54 +22,184 @@ func SetDB(pool *pgxpool.Pool) {
 
 // Obtiene la información de un usuario por su ID
 func Login(c *fiber.Ctx) error {
-	var datos UsuarioLogin
+	var datos models.UsuarioLogin
 
 	if err := c.BodyParser(&datos); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Datos inválidos",
+			"error": "Datos inválidos: " + err.Error(),
 		})
 	}
 
-	// Buscar el usuario por correo
-	var usuario UsuarioBD
-	query := `SELECT id_usuario, nombre, password, rol FROM usuarios WHERE correo=$1`
-	err := DB.QueryRow(context.Background(), query, datos.Correo).Scan(
-		&usuario.ID,
-		&usuario.Nombre,
-		&usuario.Password,
-		&usuario.Rol,
-	)
+	// Obtener dirección IP y User-Agent
+	ip := c.IP()
+	userAgent := c.Get("User-Agent")
+
+	// Buscar usuario
+	var usuario models.UsuarioBD
+	err := DB.QueryRow(context.Background(),
+		`SELECT id_usuario, nombre, password, rol 
+         FROM usuarios WHERE correo = $1`, datos.Correo).Scan(
+		&usuario.ID, &usuario.Nombre, &usuario.Password, &usuario.Rol)
+
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Credenciales inválidas",
 		})
 	}
 
-	// Comparar contraseñas (texto plano, si usas hash dime)
+	// Verificar contraseña
 	if err := bcrypt.CompareHashAndPassword([]byte(usuario.Password), []byte(datos.Password)); err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Credenciales inválidas",
 		})
 	}
 
-	// Crear token JWT
-	token, err := utils.CrearToken(usuario.Nombre, usuario.Rol)
+	// Generar tokens
+	accessToken, refreshToken, err := utils.CrearTokens(usuario.ID, usuario.Nombre, usuario.Rol)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "No se pudo generar el token",
+			"error": "Error generando tokens: " + err.Error(),
+		})
+	}
+
+	// Guardar refresh token (adaptado a tu estructura)
+	_, err = DB.Exec(context.Background(),
+		`INSERT INTO refresh_tokens 
+         (usuario_id, token, fecha_creacion, fecha_expiracion, revocado, direccion_ip, user_agent)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		usuario.ID,
+		refreshToken,
+		time.Now(),                     // fecha_creacion
+		time.Now().Add(7*24*time.Hour), // fecha_expiracion (7 días)
+		false,                          // revocado
+		ip,                             // direccion_ip
+		userAgent,                      // user_agent
+	)
+
+	if err != nil {
+		log.Printf("Error SQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al guardar sesión: " + err.Error(),
+		})
+	}
+
+	return c.JSON(models.TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	})
+}
+
+// Nuevo handler para refrescar tokens
+func RefreshToken(c *fiber.Ctx) error {
+	var req models.RefreshTokenRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Datos inválidos",
+		})
+	}
+
+	// Validar token
+	token, err := utils.ValidarToken(req.RefreshToken)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Token inválido: " + err.Error(),
+		})
+	}
+
+	claims, ok := token.Claims.(*models.Claims)
+	if !ok || !token.Valid {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Token inválido",
+		})
+	}
+
+	// Revocar token anterior
+	_, err = DB.Exec(context.Background(),
+		`UPDATE refresh_tokens SET revocado = true WHERE token = $1`, req.RefreshToken)
+
+	if err != nil {
+		log.Printf("Error al revocar refresh token anterior: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al revocar token anterior",
+		})
+	}
+
+	// Generar nuevos tokens
+	usuarioID, _ := strconv.Atoi(claims.Subject)
+	newAccess, newRefresh, err := utils.CrearTokens(usuarioID, claims.Nombre, claims.Rol)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error generando nuevos tokens",
+		})
+	}
+
+	// Obtener IP y User-Agent actuales
+	ip := c.IP()
+	userAgent := c.Get("User-Agent")
+
+	// Insertar nuevo refresh token
+	_, err = DB.Exec(context.Background(),
+		`INSERT INTO refresh_tokens 
+         (usuario_id, token, fecha_creacion, fecha_expiracion, revocado, direccion_ip, user_agent)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		usuarioID,
+		newRefresh,
+		time.Now(),
+		time.Now().Add(7*24*time.Hour),
+		false,
+		ip,
+		userAgent,
+	)
+
+	if err != nil {
+		log.Printf("Error al guardar nuevo refresh token: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al guardar sesión",
+		})
+	}
+
+	return c.JSON(models.TokenPair{
+		AccessToken:  newAccess,
+		RefreshToken: newRefresh,
+	})
+}
+
+// Handler para logout
+func Logout(c *fiber.Ctx) error {
+	user := c.Locals("user").(*jwt.Token)
+
+	claims, ok := user.Claims.(*models.Claims) // 👈 aquí es el cambio importante
+	if !ok || !user.Valid {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Token inválido",
+		})
+	}
+
+	userID := claims.Subject // porque tu Claims tiene `jwt.RegisteredClaims`
+
+	// Marcar token como revocado
+	_, err := DB.Exec(context.Background(),
+		`UPDATE refresh_tokens 
+         SET revocado = true 
+         WHERE usuario_id = $1 AND revocado = false`,
+		userID,
+	)
+
+	if err != nil {
+		log.Printf("Error al hacer logout: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al cerrar sesión",
 		})
 	}
 
 	return c.JSON(fiber.Map{
-		"token":  token,
-		"nombre": usuario.Nombre,
-		"rol":    usuario.Rol,
+		"mensaje": "Sesión cerrada correctamente",
 	})
 }
 
 // Obtiene la información de un usuario por su ID
 func Register(c *fiber.Ctx) error {
-	var nuevo UsuarioRegistro
+	var nuevo models.UsuarioRegistro
 
 	if err := c.BodyParser(&nuevo); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -184,7 +297,7 @@ func GetUsuario(c *fiber.Ctx) error {
 func UpdateUsuario(c *fiber.Ctx) error {
 	id := c.Params("id")
 
-	var datos UsuarioRegistro
+	var datos models.UsuarioRegistro
 	if err := c.BodyParser(&datos); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Datos inválidos",
