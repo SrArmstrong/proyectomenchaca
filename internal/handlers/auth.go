@@ -6,7 +6,9 @@ import (
 	"proyectomenchaca/internal/models"
 	"proyectomenchaca/internal/utils"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -177,6 +179,35 @@ func Logout(c *fiber.Ctx) error {
 	})
 }
 
+func isValidPassword(password string) bool {
+	if len(password) < 12 {
+		return false
+	}
+
+	hasLetter := false
+	hasDigit := false
+	hasSymbol := false
+
+	for _, c := range password {
+		switch {
+		case 'a' <= c && c <= 'z':
+			hasLetter = true
+		case 'A' <= c && c <= 'Z':
+			hasLetter = true
+		case '0' <= c && c <= '9':
+			hasDigit = true
+		case strings.ContainsRune("!@#$%^&*()-_=+[]{}|;:',.<>?/`~", c):
+			hasSymbol = true
+		default:
+			if !unicode.IsLetter(c) && !unicode.IsDigit(c) {
+				hasSymbol = true
+			}
+		}
+	}
+
+	return hasLetter && hasDigit && hasSymbol
+}
+
 // Obtiene la información de un usuario por su ID
 func Register(c *fiber.Ctx) error {
 	var nuevo models.UsuarioRegistro
@@ -187,10 +218,16 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validación mínima
 	if nuevo.Nombre == "" || nuevo.Correo == "" || nuevo.Password == "" || nuevo.Rol == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Faltan campos requeridos",
+		})
+	}
+
+	// Validar fortaleza de contraseña
+	if !isValidPassword(nuevo.Password) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "La contraseña debe tener al menos 12 caracteres, incluyendo letras, números y símbolos.",
 		})
 	}
 
@@ -222,7 +259,6 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
-	// Insertar usuario
 	query := `INSERT INTO usuarios (nombre, rol, correo, telefono, especialidad, password, secret_totp)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
@@ -235,12 +271,11 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
-	// Regresar la URL para escanear con la app de autenticación
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"mensaje":     "Usuario registrado correctamente",
 		"correo":      nuevo.Correo,
 		"secret":      secret,
-		"otpauth_url": key.URL(), // Puedes generar el QR con esta URL si luego agregas interfaz
+		"otpauth_url": key.URL(),
 	})
 }
 
