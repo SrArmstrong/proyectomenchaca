@@ -85,8 +85,6 @@ func main() {
 	// Middlewares
 	app.Use(middleware.Logger())
 
-	app.Use(middleware.Logger())
-
 	app.Use(limiter.New(limiter.Config{
 		Max:        100,             //
 		Expiration: 1 * time.Minute, //
@@ -116,45 +114,43 @@ func main() {
 	// Grupo de rutas accesibles para médicos y admin
 	medico := api.Group("", middleware.OnlyMedicoOrAdmin())
 
-	// Rutas de usuarios (solo admin puede ver o editar usuarios)
-	admin.Get("/usuarios/:id", handlers.GetUsuario)
-	admin.Put("/usuarios/:id", handlers.UpdateUsuario)
-	admin.Delete("/usuarios/:id", handlers.DeleteUsuario)
+	// Rutas de usuarios
+	admin.Get("/usuarios/:id", middleware.HasPermission("read_usuario"), handlers.GetUsuario)
+	admin.Put("/usuarios/:id", middleware.HasPermission("update_usuario"), handlers.UpdateUsuario)
+	admin.Delete("/usuarios/:id", middleware.HasPermission("delete_usuario"), handlers.DeleteUsuario)
 
-	// Rutas de expedientes (solo medico puede ver o editar usuarios)
-	medico.Post("/expedientes", handlers.CreateExpediente)
-	medico.Put("/expedientes/:id", handlers.UpdateExpediente)
-	medico.Delete("/expedientes/:id", handlers.DeleteExpediente)
+	// Rutas de expedientes
+	medico.Post("/expedientes", middleware.HasPermission("add_expediente"), handlers.CreateExpediente)
+	medico.Put("/expedientes/:id", middleware.HasPermission("update_expediente"), handlers.UpdateExpediente)
+	medico.Delete("/expedientes/:id", middleware.HasPermission("delete_expediente"), handlers.DeleteExpediente)
+	api.Get("/expedientes/:id", middleware.HasPermission("read_expediente"), handlers.GetExpediente) // Aquí en handler valida que el ID sea del propio usuario si es paciente
 
-	// Rutas de expedientes que podría acceder un paciente solo para sí mismo
-	api.Get("/expedientes/:id", handlers.GetExpediente) // Aquí en handler valida que el ID sea del propio usuario si es paciente
-
-	// Rutas de consultorios (solo admin o médicos)
-	medico.Post("/consultorios", handlers.CreateConsultorio)
-	medico.Get("/consultorios/:id", handlers.GetConsultorio)
-	medico.Put("/consultorios/:id", handlers.UpdateConsultorio)
-	medico.Delete("/consultorios/:id", handlers.DeleteConsultorio)
+	// Rutas de consultorios
+	medico.Post("/consultorios", middleware.HasPermission("add_consultorio"), handlers.CreateConsultorio)
+	medico.Get("/consultorios/:id", middleware.HasPermission("read_consultorio"), handlers.GetConsultorio)
+	medico.Put("/consultorios/:id", middleware.HasPermission("update_consultorio"), handlers.UpdateConsultorio)
+	medico.Delete("/consultorios/:id", middleware.HasPermission("delete_consultorio"), handlers.DeleteConsultorio)
 
 	// Rutas de consultas
-	medico.Post("/consultas", handlers.CreateConsulta)
-	medico.Put("/consultas/:id", handlers.UpdateConsulta)
-	medico.Delete("/consultas/:id", handlers.DeleteConsulta)
-	medico.Get("/consultas/:id", handlers.GetConsulta) // El médico o el paciente pueden consultar, puede validarse en handler
+	medico.Post("/consultas", middleware.HasPermission("add_consulta"), handlers.CreateConsulta)
+	medico.Put("/consultas/:id", middleware.HasPermission("update_consulta"), handlers.UpdateConsulta)
+	medico.Delete("/consultas/:id", middleware.HasPermission("delete_consulta"), handlers.DeleteConsulta)
+	medico.Get("/consultas/:id", middleware.HasPermission("read_consulta"), handlers.GetConsulta)
 
 	// Rutas de horarios
-	medico.Post("/horarios", handlers.CreateHorario)
-	medico.Put("/horarios/:id", handlers.UpdateHorario)
-	medico.Delete("/horarios/:id", handlers.DeleteHorario)
-	medico.Get("/horarios/:id", handlers.GetHorario)
+	medico.Post("/horarios", middleware.HasPermission("add_horario"), handlers.CreateHorario)
+	medico.Put("/horarios/:id", middleware.HasPermission("update_horario"), handlers.UpdateHorario)
+	medico.Delete("/horarios/:id", middleware.HasPermission("delete_horario"), handlers.DeleteHorario)
+	medico.Get("/horarios/:id", middleware.HasPermission("read_horario"), handlers.GetHorario)
 
 	// Rutas de recetas
-	medico.Post("/recetas", handlers.CreateReceta)
-	medico.Put("/recetas/:id", handlers.UpdateReceta)
-	medico.Delete("/recetas/:id", handlers.DeleteReceta)
-	medico.Get("/recetas/:id", handlers.GetReceta)
+	medico.Post("/recetas", middleware.HasPermission("add_receta"), handlers.CreateReceta)
+	medico.Put("/recetas/:id", middleware.HasPermission("update_receta"), handlers.UpdateReceta)
+	medico.Delete("/recetas/:id", middleware.HasPermission("delete_receta"), handlers.DeleteReceta)
+	medico.Get("/recetas/:id", middleware.HasPermission("read_receta"), handlers.GetReceta)
 
 	// Ruta de prueba
-	api.Get("/saludo", middleware.OnlyAdmin(), handlers.Saludo)
+	api.Get("/saludo", middleware.HasPermission("read_usuario"), handlers.Saludo)
 
 	// Iniciar servidor
 	port := os.Getenv("PORT")

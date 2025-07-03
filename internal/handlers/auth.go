@@ -6,22 +6,14 @@ import (
 	"proyectomenchaca/internal/models"
 	"proyectomenchaca/internal/utils"
 	"strconv"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
-
-var DB *pgxpool.Pool
-
-func SetDB(pool *pgxpool.Pool) {
-	DB = pool
-}
 
 // Obtiene la información de un usuario por su ID
 func Login(c *fiber.Ctx) error {
@@ -39,12 +31,22 @@ func Login(c *fiber.Ctx) error {
          FROM usuarios WHERE correo = $1`, datos.Correo).Scan(
 		&usuario.ID, &usuario.Nombre, &usuario.Password, &usuario.Rol, &usuario.SecretTOTP)
 
-	if !totp.Validate(datos.CodigoTOTP, usuario.SecretTOTP) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Código TOTP inválido"})
-	}
-
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Credenciales inválidas"})
+	}
+
+	valid, err := totp.ValidateCustom(datos.CodigoTOTP, usuario.SecretTOTP, time.Now(), totp.ValidateOpts{
+		Period:    30,
+		Skew:      1,
+		Digits:    otp.DigitsSix,
+		Algorithm: otp.AlgorithmSHA1,
+	})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error validando código TOTP"})
+	}
+
+	if !valid {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Código TOTP inválido"})
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(usuario.Password), []byte(datos.Password)); err != nil {
@@ -179,35 +181,6 @@ func Logout(c *fiber.Ctx) error {
 	})
 }
 
-func isValidPassword(password string) bool {
-	if len(password) < 12 {
-		return false
-	}
-
-	hasLetter := false
-	hasDigit := false
-	hasSymbol := false
-
-	for _, c := range password {
-		switch {
-		case 'a' <= c && c <= 'z':
-			hasLetter = true
-		case 'A' <= c && c <= 'Z':
-			hasLetter = true
-		case '0' <= c && c <= '9':
-			hasDigit = true
-		case strings.ContainsRune("!@#$%^&*()-_=+[]{}|;:',.<>?/`~", c):
-			hasSymbol = true
-		default:
-			if !unicode.IsLetter(c) && !unicode.IsDigit(c) {
-				hasSymbol = true
-			}
-		}
-	}
-
-	return hasLetter && hasDigit && hasSymbol
-}
-
 // Obtiene la información de un usuario por su ID
 func Register(c *fiber.Ctx) error {
 	var nuevo models.UsuarioRegistro
@@ -218,16 +191,10 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
+	// Validación mínima
 	if nuevo.Nombre == "" || nuevo.Correo == "" || nuevo.Password == "" || nuevo.Rol == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Faltan campos requeridos",
-		})
-	}
-
-	// Validar fortaleza de contraseña
-	if !isValidPassword(nuevo.Password) {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "La contraseña debe tener al menos 12 caracteres, incluyendo letras, números y símbolos.",
 		})
 	}
 
@@ -259,6 +226,7 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
+	// Insertar usuario
 	query := `INSERT INTO usuarios (nombre, rol, correo, telefono, especialidad, password, secret_totp)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
@@ -271,11 +239,12 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
+	// Regresar la URL para escanear con la app de autenticación
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"mensaje":     "Usuario registrado correctamente",
 		"correo":      nuevo.Correo,
 		"secret":      secret,
-		"otpauth_url": key.URL(),
+		"otpauth_url": key.URL(), // Puedes generar el QR con esta URL si luego agregas interfaz
 	})
 }
 

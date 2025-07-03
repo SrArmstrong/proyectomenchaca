@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"context"
 	"log"
+	"proyectomenchaca/internal/handlers"
+	"proyectomenchaca/internal/models"
 	"proyectomenchaca/internal/utils"
 	"strings"
 
@@ -12,13 +15,49 @@ import (
 // Permite el acceso a administradores
 func OnlyAdmin() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		user := c.Locals("user") // extraído desde JWTProtected()
-		claims := user.(*jwt.Token).Claims.(jwt.MapClaims)
+		user := c.Locals("user").(*jwt.Token)
 
-		rol, ok := claims["rol"].(string)
-		if !ok || rol != "admin" {
+		claims, ok := user.Claims.(*models.Claims)
+		if !ok {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Claims inválidos"})
+		}
+
+		if claims.Rol != "admin" {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error": "Acceso denegado: se requiere rol admin",
+			})
+		}
+
+		return c.Next()
+	}
+}
+
+func HasPermission(nombrePermiso string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		user := c.Locals("user").(*jwt.Token)
+
+		claims, ok := user.Claims.(*models.Claims)
+		if !ok {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Claims inválidos"})
+		}
+
+		rol := claims.Rol
+		db := handlers.GetDB()
+
+		var exists bool
+		query := `
+			SELECT EXISTS (
+				SELECT 1 
+				FROM roles_permisos rp
+				JOIN permisos p ON rp.id_permiso = p.id_permiso
+				WHERE rp.rol = $1 AND p.nombre = $2
+			)
+		`
+
+		err := db.QueryRow(context.Background(), query, rol, nombrePermiso).Scan(&exists)
+		if err != nil || !exists {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "Permiso denegado: " + nombrePermiso,
 			})
 		}
 
@@ -29,11 +68,14 @@ func OnlyAdmin() fiber.Handler {
 // Permite el acceso a médicos y administradores
 func OnlyMedicoOrAdmin() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		user := c.Locals("user") // extraído desde JWTProtected()
-		claims := user.(*jwt.Token).Claims.(jwt.MapClaims)
+		user := c.Locals("user").(*jwt.Token)
 
-		rol, ok := claims["rol"].(string)
-		if !ok || (rol != "medico" && rol != "admin") {
+		claims, ok := user.Claims.(*models.Claims)
+		if !ok {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Claims inválidos"})
+		}
+
+		if claims.Rol != "admin" && claims.Rol != "medico" {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error": "Acceso denegado: se requiere rol medico o admin",
 			})
