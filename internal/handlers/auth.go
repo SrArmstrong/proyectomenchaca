@@ -277,12 +277,42 @@ func GetUsuario(c *fiber.Ctx) error {
 		&usuario.Especialidad,
 	)
 
+	// Obtener usuario que hace la petición, si tienes JWT puedes hacer algo como:
+	var usuarioPeticion string
+	if u := c.Locals("user"); u != nil {
+		// Asumiendo que el user en Locals es un struct o mapa con email o nombre
+		// Ajusta según tu implementación real
+		if userMap, ok := u.(map[string]interface{}); ok {
+			if email, ok := userMap["email"].(string); ok {
+				usuarioPeticion = email
+			}
+		} else if userStr, ok := u.(string); ok {
+			usuarioPeticion = userStr
+		}
+	}
+
+	// Crear mensaje personalizado
+	mensaje := ""
 	if err != nil {
-		// Si no se encuentra el usuario, devolvemos un error 404
+		// Loguear que no se encontró usuario
+		mensaje = "Usuario no encontrado con ID " + id
+
+		// Guardar log (usa go routine para no bloquear)
+		go func() {
+			_ = LogEvent(c.Context(), "/usuarios/"+id, "GET", usuarioPeticion, mensaje, c.IP(), c.Get("User-Agent"))
+		}()
+
+		// Responder error 404
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Usuario no encontrado",
 		})
 	}
+
+	// Loguear acceso exitoso
+	mensaje = "Consulta exitosa para usuario con ID " + id
+	go func() {
+		_ = LogEvent(c.Context(), "/usuarios/"+id, "GET", usuarioPeticion, mensaje, c.IP(), c.Get("User-Agent"))
+	}()
 
 	return c.JSON(usuario)
 }

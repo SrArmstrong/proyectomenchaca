@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"log"
 	"proyectomenchaca/internal/handlers"
 	"proyectomenchaca/internal/models"
 	"proyectomenchaca/internal/utils"
@@ -47,12 +46,12 @@ func HasPermission(nombrePermiso string) fiber.Handler {
 		var exists bool
 		query := `
 			SELECT EXISTS (
-				SELECT 1 
-				FROM roles_permisos rp
-				JOIN permisos p ON rp.id_permiso = p.id_permiso
-				WHERE rp.rol = $1 AND p.nombre = $2
+				SELECT 1
+				FROM roles_permisos_agrupados rpa
+				JOIN permisos p ON p.id_permiso = ANY(rpa.id_permisos)
+				WHERE rpa.rol = $1 AND p.nombre = $2
 			)
-		`
+`
 
 		err := db.QueryRow(context.Background(), query, rol, nombrePermiso).Scan(&exists)
 		if err != nil || !exists {
@@ -113,7 +112,22 @@ func JWTProtected() fiber.Handler {
 
 func Logger() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		log.Printf("[%s] %s", c.Method(), c.Path())
-		return c.Next()
+		// Ejecutar siguiente middleware o handler
+		err := c.Next()
+
+		// Aquí capturamos datos de la petición para log
+		endpoint := c.Path()
+		metodo := c.Method()
+		usuario := c.Get("X-User-Email") // o de JWT u otra forma que tengas de identificar usuario
+		mensaje := ""                    // opcional, podrías guardar error o info
+		direccionIP := c.IP()
+		userAgent := c.Get("User-Agent")
+
+		// Llamamos a la función para guardar el log, sin bloquear la petición
+		go func() {
+			_ = handlers.LogEvent(context.Background(), endpoint, metodo, usuario, mensaje, direccionIP, userAgent)
+		}()
+
+		return err
 	}
 }
