@@ -5,6 +5,7 @@ import (
 	"log"
 	"proyectomenchaca/internal/models"
 	"proyectomenchaca/internal/utils"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -17,9 +18,21 @@ import (
 
 // Obtiene la información de un usuario por su ID
 func Login(c *fiber.Ctx) error {
+	inicio := time.Now()
+
 	var datos models.UsuarioLogin
 	if err := c.BodyParser(&datos); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"Int_Code":   "F",
+			"StatusCode": fiber.StatusBadRequest,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Datos inválidos",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
 	}
 
 	ip := c.IP()
@@ -32,7 +45,17 @@ func Login(c *fiber.Ctx) error {
 		&usuario.ID, &usuario.Nombre, &usuario.Password, &usuario.Rol, &usuario.SecretTOTP)
 
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Credenciales inválidas"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"Int_Code":   "F",
+			"StatusCode": fiber.StatusUnauthorized,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Credenciales inválidas",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
 	}
 
 	valid, err := totp.ValidateCustom(datos.CodigoTOTP, usuario.SecretTOTP, time.Now(), totp.ValidateOpts{
@@ -42,20 +65,60 @@ func Login(c *fiber.Ctx) error {
 		Algorithm: otp.AlgorithmSHA1,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error validando código TOTP"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"Int_Code":   "E",
+			"StatusCode": fiber.StatusInternalServerError,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Error validando código TOTP",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
 	}
 
 	if !valid {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Código TOTP inválido"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"Int_Code":   "F",
+			"StatusCode": fiber.StatusUnauthorized,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Código TOTP inválido",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(usuario.Password), []byte(datos.Password)); err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Credenciales inválidas"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"Int_Code":   "F",
+			"StatusCode": fiber.StatusUnauthorized,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Credenciales inválidas",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
 	}
 
 	accessToken, refreshToken, err := utils.CrearTokens(usuario.ID, usuario.Nombre, usuario.Rol)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error generando tokens"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"Int_Code":   "E",
+			"StatusCode": fiber.StatusInternalServerError,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Error generando tokens",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
 	}
 
 	_, err = DB.Exec(context.Background(),
@@ -64,12 +127,32 @@ func Login(c *fiber.Ctx) error {
 		usuario.ID, refreshToken, time.Now(), time.Now().Add(7*24*time.Hour), false, ip, userAgent)
 
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar sesión"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"Int_Code":   "E",
+			"StatusCode": fiber.StatusInternalServerError,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Error al guardar sesión",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
 	}
 
-	return c.JSON(models.TokenPair{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+	// Éxito
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"Int_Code":   "S",
+		"StatusCode": fiber.StatusOK,
+		"Data": []map[string]interface{}{
+			{
+				"mensaje":          "Inicio de sesión exitoso",
+				"timestamp":        time.Now().Format(time.RFC3339),
+				"tiempo_respuesta": time.Since(inicio).String(),
+			},
+		},
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
 	})
 }
 
@@ -217,6 +300,15 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 	secret := key.Secret()
+
+	// Validar fuerza de contraseña
+	var strongPass = regexp.MustCompile(`^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{12,}$`)
+
+	if !strongPass.MatchString(nuevo.Password) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "La contraseña debe tener al menos 12 caracteres, incluyendo mayúsculas, minúsculas, números y símbolos.",
+		})
+	}
 
 	// Hashear la contraseña
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(nuevo.Password), bcrypt.DefaultCost)
