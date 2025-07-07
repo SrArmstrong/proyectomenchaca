@@ -8,6 +8,8 @@ import (
 	"proyectomenchaca/internal/middleware"
 	"time"
 
+	"github.com/gofiber/fiber/v2/middleware/cors"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/jackc/pgx/v5"
@@ -81,6 +83,13 @@ func main() {
 
 	// ====================== Configuración de Fiber ======================
 	app := fiber.New()
+
+	// Habilita CORS para todas las rutas y orígenes
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "http://localhost:4200", // origen del frontend
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+	}))
 
 	// Middlewares
 	app.Use(middleware.Logger())

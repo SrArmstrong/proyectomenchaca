@@ -35,11 +35,21 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
+	/* Función para ver los datos que se reciben
+	jsonBytes, err := json.MarshalIndent(datos, "", "  ")
+	if err != nil {
+		log.Println("Error al serializar datos:", err)
+	} else {
+		log.Println("Datos recibidos en login:", string(jsonBytes))
+	}
+	*/
+
 	ip := c.IP()
 	userAgent := c.Get("User-Agent")
 
 	var usuario models.UsuarioBD
 	err := DB.QueryRow(context.Background(),
+		//err = DB.QueryRow(context.Background(), Cambiar en caso de verificar datos recibidos
 		`SELECT id_usuario, nombre, password, rol, secret_totp 
          FROM usuarios WHERE correo = $1`, datos.Correo).Scan(
 		&usuario.ID, &usuario.Nombre, &usuario.Password, &usuario.Rol, &usuario.SecretTOTP)
@@ -60,7 +70,7 @@ func Login(c *fiber.Ctx) error {
 
 	valid, err := totp.ValidateCustom(datos.CodigoTOTP, usuario.SecretTOTP, time.Now(), totp.ValidateOpts{
 		Period:    30,
-		Skew:      1,
+		Skew:      2,
 		Digits:    otp.DigitsSix,
 		Algorithm: otp.AlgorithmSHA1,
 	})
