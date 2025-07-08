@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"proyectomenchaca/internal/models"
 	"proyectomenchaca/internal/utils"
@@ -274,6 +275,17 @@ func Logout(c *fiber.Ctx) error {
 	})
 }
 
+// Verifica la seguridad de la contraseña
+func isStrongPassword(password string) bool {
+	hasUpper := regexp.MustCompile(`[A-Z]`).MatchString(password)
+	hasLower := regexp.MustCompile(`[a-z]`).MatchString(password)
+	hasNumber := regexp.MustCompile(`[0-9]`).MatchString(password)
+	hasSpecial := regexp.MustCompile(`[@$!%*#?&]`).MatchString(password)
+	longEnough := len(password) >= 12
+
+	return hasUpper && hasLower && hasNumber && hasSpecial && longEnough
+}
+
 // Obtiene la información de un usuario por su ID
 func Register(c *fiber.Ctx) error {
 	var nuevo models.UsuarioRegistro
@@ -311,10 +323,7 @@ func Register(c *fiber.Ctx) error {
 	}
 	secret := key.Secret()
 
-	// Validar fuerza de contraseña
-	var strongPass = regexp.MustCompile(`^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{12,}$`)
-
-	if !strongPass.MatchString(nuevo.Password) {
+	if !isStrongPassword(nuevo.Password) {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "La contraseña debe tener al menos 12 caracteres, incluyendo mayúsculas, minúsculas, números y símbolos.",
 		})
@@ -336,6 +345,7 @@ func Register(c *fiber.Ctx) error {
 		nuevo.Nombre, nuevo.Rol, nuevo.Correo, nuevo.Telefono, nuevo.Especialidad, string(hashedPassword), secret)
 
 	if err != nil {
+		fmt.Println("Error SQL:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Error al registrar el usuario",
 		})
