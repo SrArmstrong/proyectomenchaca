@@ -24,3 +24,11 @@ type UsuarioBD struct {
 	Rol        string
 	SecretTOTP string
 }
+
+type Expediente struct {
+	IDExpediente int    `json:"id_expediente"`
+	IDPaciente   int    `json:"id_paciente"`
+	Antecedentes string `json:"antecedentes"`
+	Historial    string `json:"historial"`
+	Seguro       string `json:"seguro"`
+}

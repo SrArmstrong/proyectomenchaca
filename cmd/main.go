@@ -133,6 +133,7 @@ func main() {
 	medico.Put("/expedientes/:id", middleware.HasPermission("update_expediente"), handlers.UpdateExpediente)
 	medico.Delete("/expedientes/:id", middleware.HasPermission("delete_expediente"), handlers.DeleteExpediente)
 	api.Get("/expedientes/:id", middleware.HasPermission("read_expediente"), handlers.GetExpediente) // Aquí en handler valida que el ID sea del propio usuario si es paciente
+	api.Get("/expedientes", middleware.HasPermission("read_expediente"), handlers.GetAllExpedientes)
 
 	// Rutas de consultorios
 	medico.Post("/consultorios", middleware.HasPermission("add_consultorio"), handlers.CreateConsultorio)

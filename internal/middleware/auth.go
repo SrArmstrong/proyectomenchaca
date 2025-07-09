@@ -101,7 +101,7 @@ func JWTProtected() fiber.Handler {
 		tokenStr := partes[1]
 		token, err := utils.ValidarToken(tokenStr)
 		if err != nil {
-			return c.Status(401).JSON(fiber.Map{"error": "Token inválido"})
+			return c.Status(401).JSON(fiber.Map{"error": "Token inválido", "details": err.Error()})
 		}
 
 		c.Locals("user", token)

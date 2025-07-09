@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"proyectomenchaca/internal/models"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -64,6 +65,34 @@ func GetExpediente(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(expediente)
+}
+
+// Trae todos los expedientes
+func GetAllExpedientes(c *fiber.Ctx) error {
+	query := `SELECT id_expediente, id_paciente, antecedentes, historial, seguro FROM expedientes`
+
+	rows, err := DB.Query(context.Background(), query)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al obtener expedientes",
+		})
+	}
+	defer rows.Close()
+
+	var expedientes []models.Expediente
+	for rows.Next() {
+		var exp models.Expediente
+		err := rows.Scan(&exp.IDExpediente, &exp.IDPaciente, &exp.Antecedentes, &exp.Historial, &exp.Seguro)
+		if err != nil {
+			continue // podrías registrar el error si quieres
+		}
+		expedientes = append(expedientes, exp)
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "ok",
+		"data":   expedientes,
+	})
 }
 
 // UpdateExpediente actualiza un expediente

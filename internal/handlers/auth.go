@@ -49,6 +49,8 @@ func Login(c *fiber.Ctx) error {
 	userAgent := c.Get("User-Agent")
 
 	var usuario models.UsuarioBD
+
+	// Validación del usuario
 	err := DB.QueryRow(context.Background(),
 		//err = DB.QueryRow(context.Background(), Cambiar en caso de verificar datos recibidos
 		`SELECT id_usuario, nombre, password, rol, secret_totp 
@@ -68,6 +70,29 @@ func Login(c *fiber.Ctx) error {
 			},
 		})
 	}
+
+	// Obtener permisos asociados al rol del usuario
+	rows, err := DB.Query(context.Background(), `
+	SELECT p.nombre
+	FROM roles_permisos_agrupados rpa
+	JOIN permisos p ON p.id_permiso = ANY(rpa.id_permisos)
+	WHERE rpa.rol = $1
+`, usuario.Rol)
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al obtener permisos",
+		})
+	}
+
+	var permisos []string
+	for rows.Next() {
+		var permiso string
+		if err := rows.Scan(&permiso); err == nil {
+			permisos = append(permisos, permiso)
+		}
+	}
+	rows.Close()
 
 	valid, err := totp.ValidateCustom(datos.CodigoTOTP, usuario.SecretTOTP, time.Now(), totp.ValidateOpts{
 		Period:    30,
@@ -160,10 +185,11 @@ func Login(c *fiber.Ctx) error {
 				"mensaje":          "Inicio de sesión exitoso",
 				"timestamp":        time.Now().Format(time.RFC3339),
 				"tiempo_respuesta": time.Since(inicio).String(),
+				"access_token":     accessToken,
+				"refresh_token":    refreshToken,
+				"permisos":         permisos,
 			},
 		},
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
 	})
 }
 
