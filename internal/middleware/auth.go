@@ -12,6 +12,7 @@ import (
 )
 
 // Permite el acceso a administradores
+/*
 func OnlyAdmin() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		user := c.Locals("user").(*jwt.Token)
@@ -30,7 +31,9 @@ func OnlyAdmin() fiber.Handler {
 		return c.Next()
 	}
 }
+*/
 
+// HasPermission verifica si el usuario tiene un permiso específico
 func HasPermission(nombrePermiso string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		user := c.Locals("user").(*jwt.Token)
@@ -65,6 +68,7 @@ func HasPermission(nombrePermiso string) fiber.Handler {
 }
 
 // Permite el acceso a médicos y administradores
+/*
 func OnlyMedicoOrAdmin() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		user := c.Locals("user").(*jwt.Token)
@@ -83,6 +87,7 @@ func OnlyMedicoOrAdmin() fiber.Handler {
 		return c.Next()
 	}
 }
+*/
 
 // Permite el acceso a todos los usuarios que cuenten con un token
 func JWTProtected() fiber.Handler {
