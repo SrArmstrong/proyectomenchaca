@@ -5,6 +5,8 @@ import (
 	"proyectomenchaca/internal/models"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type Expediente struct {
@@ -69,9 +71,27 @@ func GetExpediente(c *fiber.Ctx) error {
 
 // Trae todos los expedientes
 func GetAllExpedientes(c *fiber.Ctx) error {
-	query := `SELECT id_expediente, id_paciente, antecedentes, historial, seguro FROM expedientes`
+	// Recuperamos los claims desde el token
+	token := c.Locals("user").(*jwt.Token)
+	claims := token.Claims.(*models.Claims)
 
-	rows, err := DB.Query(context.Background(), query)
+	rol := claims.Rol
+	idUsuario := claims.IDUsuario
+
+	var rows pgx.Rows
+	var err error
+
+	if rol == "paciente" {
+		// Solo su expediente
+		query := `SELECT id_expediente, id_paciente, antecedentes, historial, seguro 
+		          FROM expedientes WHERE id_paciente = $1`
+		rows, err = DB.Query(context.Background(), query, idUsuario)
+	} else {
+		// Todos los expedientes
+		query := `SELECT id_expediente, id_paciente, antecedentes, historial, seguro FROM expedientes`
+		rows, err = DB.Query(context.Background(), query)
+	}
+
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Error al obtener expedientes",
@@ -84,7 +104,7 @@ func GetAllExpedientes(c *fiber.Ctx) error {
 		var exp models.Expediente
 		err := rows.Scan(&exp.IDExpediente, &exp.IDPaciente, &exp.Antecedentes, &exp.Historial, &exp.Seguro)
 		if err != nil {
-			continue // podrías registrar el error si quieres
+			continue // opcional: podrías loguearlo
 		}
 		expedientes = append(expedientes, exp)
 	}

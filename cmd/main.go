@@ -137,6 +137,7 @@ func main() {
 
 	// Rutas de consultorios
 	api.Post("/consultorios", middleware.HasPermission("add_consultorio"), handlers.CreateConsultorio)
+	api.Get("/consultorios", middleware.HasPermission("read_consultorio"), handlers.GetConsultoriosDisponibles) // Nueva ruta
 	api.Get("/consultorios/:id", middleware.HasPermission("read_consultorio"), handlers.GetConsultorio)
 	api.Put("/consultorios/:id", middleware.HasPermission("update_consultorio"), handlers.UpdateConsultorio)
 	api.Delete("/consultorios/:id", middleware.HasPermission("delete_consultorio"), handlers.DeleteConsultorio)

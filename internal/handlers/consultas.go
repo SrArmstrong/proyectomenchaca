@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"context"
+	"proyectomenchaca/internal/models"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type Consulta struct {
@@ -87,10 +90,24 @@ func GetConsulta(c *fiber.Ctx) error {
 }
 
 func GetAllConsultas(c *fiber.Ctx) error {
-	query := `SELECT *
-	          FROM consultas ORDER BY fecha DESC, hora DESC`
+	token := c.Locals("user").(*jwt.Token)
+	claims := token.Claims.(*models.Claims)
 
-	rows, err := DB.Query(context.Background(), query)
+	rol := claims.Rol
+	idUsuario := claims.IDUsuario
+
+	var query string
+	var rows pgx.Rows
+	var err error
+
+	if rol == "paciente" {
+		query = `SELECT * FROM consultas WHERE id_paciente = $1 ORDER BY fecha DESC, hora DESC`
+		rows, err = DB.Query(context.Background(), query, idUsuario)
+	} else {
+		query = `SELECT * FROM consultas ORDER BY fecha DESC, hora DESC`
+		rows, err = DB.Query(context.Background(), query)
+	}
+
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Error al obtener consultas",
