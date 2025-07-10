@@ -543,3 +543,63 @@ func LoginInfo(c *fiber.Ctx) error {
 func Saludo(c *fiber.Ctx) error {
 	return c.SendString("Hola mundo desde Fiber")
 }
+
+// traer medico
+func GetMedicos(c *fiber.Ctx) error {
+	rows, err := DB.Query(context.Background(), `
+		SELECT id_usuario, nombre 
+		FROM usuarios 
+		WHERE rol = 'medico'
+	`)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al obtener médicos",
+		})
+	}
+	defer rows.Close()
+
+	var medicos []map[string]interface{}
+
+	for rows.Next() {
+		var id int
+		var nombre string
+		if err := rows.Scan(&id, &nombre); err == nil {
+			medicos = append(medicos, map[string]interface{}{
+				"id":     id,
+				"nombre": nombre,
+			})
+		}
+	}
+
+	return c.JSON(medicos)
+}
+
+// Traer paciente
+func GetPacientes(c *fiber.Ctx) error {
+	rows, err := DB.Query(context.Background(), `
+		SELECT id_usuario, nombre 
+		FROM usuarios 
+		WHERE rol = 'paciente'
+	`)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al obtener pacientes",
+		})
+	}
+	defer rows.Close()
+
+	var pacientes []map[string]interface{}
+
+	for rows.Next() {
+		var id int
+		var nombre string
+		if err := rows.Scan(&id, &nombre); err == nil {
+			pacientes = append(pacientes, map[string]interface{}{
+				"id":     id,
+				"nombre": nombre,
+			})
+		}
+	}
+
+	return c.JSON(pacientes)
+}
