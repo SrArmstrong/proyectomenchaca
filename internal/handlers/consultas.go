@@ -17,6 +17,18 @@ type Consulta struct {
 	Costo         float64 `json:"costo"`
 }
 
+type Consultas struct {
+	IDConsulta    int     `json:"id_consulta"`
+	IDConsultorio int     `json:"id_consultorio"`
+	IDMedico      int     `json:"id_medico"`
+	IDPaciente    int     `json:"id_paciente"`
+	Tipo          string  `json:"tipo"`
+	Fecha         string  `json:"fecha"`
+	Hora          string  `json:"hora"`
+	Diagnostico   string  `json:"diagnostico"`
+	Costo         float64 `json:"costo"`
+}
+
 func CreateConsulta(c *fiber.Ctx) error {
 	var consulta Consulta
 
@@ -72,6 +84,55 @@ func GetConsulta(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(consulta)
+}
+
+func GetAllConsultas(c *fiber.Ctx) error {
+	query := `SELECT *
+	          FROM consultas ORDER BY fecha DESC, hora DESC`
+
+	rows, err := DB.Query(context.Background(), query)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Error al obtener consultas",
+			"details": err.Error(),
+		})
+	}
+	defer rows.Close()
+
+	var consultas []Consultas
+	for rows.Next() {
+		var consulta Consultas
+		err := rows.Scan(
+			&consulta.IDConsulta,
+			&consulta.IDConsultorio,
+			&consulta.IDMedico,
+			&consulta.IDPaciente,
+			&consulta.Tipo,
+			&consulta.Fecha,
+			&consulta.Hora,
+			&consulta.Diagnostico,
+			&consulta.Costo,
+		)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error":   "Error al leer datos de consulta",
+				"details": err.Error(),
+			})
+		}
+		consultas = append(consultas, consulta)
+	}
+
+	if err := rows.Err(); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Error después de leer consultas",
+			"details": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"data":  consultas,
+		"count": len(consultas),
+	})
 }
 
 func UpdateConsulta(c *fiber.Ctx) error {

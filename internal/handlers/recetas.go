@@ -15,6 +15,16 @@ type Receta struct {
 	Dosis         string `json:"dosis"`
 }
 
+type Recetas struct {
+	IDReceta      int    `json:"id_receta"`
+	IDConsultorio int    `json:"id_consultorio"`
+	IDMedico      int    `json:"id_medico"`
+	IDPaciente    int    `json:"id_paciente"`
+	Fecha         string `json:"fecha"`
+	Medicamento   string `json:"medicamento"`
+	Dosis         string `json:"dosis"`
+}
+
 func CreateReceta(c *fiber.Ctx) error {
 	var receta Receta
 
@@ -68,6 +78,43 @@ func GetReceta(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(receta)
+}
+
+func GetAllRecetas(c *fiber.Ctx) error {
+	query := `SELECT id_receta, id_consultorio, id_medico, id_paciente, fecha, medicamento, dosis 
+              FROM recetas ORDER BY fecha DESC`
+
+	rows, err := DB.Query(context.Background(), query)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al consultar las recetas",
+		})
+	}
+	defer rows.Close()
+
+	var recetas []Recetas
+	for rows.Next() {
+		var receta Recetas
+		err := rows.Scan(
+			&receta.IDReceta,
+			&receta.IDConsultorio,
+			&receta.IDMedico,
+			&receta.IDPaciente,
+			&receta.Fecha,
+			&receta.Medicamento,
+			&receta.Dosis,
+		)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Error al leer los datos de las recetas",
+			})
+		}
+		recetas = append(recetas, receta)
+	}
+
+	return c.JSON(fiber.Map{
+		"data": recetas,
+	})
 }
 
 func UpdateReceta(c *fiber.Ctx) error {

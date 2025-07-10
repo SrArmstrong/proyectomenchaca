@@ -132,7 +132,7 @@ func main() {
 	api.Post("/expedientes", middleware.HasPermission("add_expediente"), handlers.CreateExpediente)
 	api.Put("/expedientes/:id", middleware.HasPermission("update_expediente"), handlers.UpdateExpediente)
 	api.Delete("/expedientes/:id", middleware.HasPermission("delete_expediente"), handlers.DeleteExpediente)
-	api.Get("/expedientes/:id", middleware.HasPermission("read_expediente"), handlers.GetExpediente) // Aquí en handler valida que el ID sea del propio usuario si es paciente
+	api.Get("/expedientes/:id", middleware.HasPermission("read_expediente"), handlers.GetExpediente)
 	api.Get("/expedientes", middleware.HasPermission("read_expediente"), handlers.GetAllExpedientes)
 
 	// Rutas de consultorios
@@ -146,6 +146,7 @@ func main() {
 	api.Put("/consultas/:id", middleware.HasPermission("update_consulta"), handlers.UpdateConsulta)
 	api.Delete("/consultas/:id", middleware.HasPermission("delete_consulta"), handlers.DeleteConsulta)
 	api.Get("/consultas/:id", middleware.HasPermission("read_consulta"), handlers.GetConsulta)
+	api.Get("/consultas", middleware.HasPermission("read_consulta"), handlers.GetAllConsultas)
 
 	// Rutas de horarios
 	api.Post("/horarios", middleware.HasPermission("add_horario"), handlers.CreateHorario)
@@ -158,6 +159,7 @@ func main() {
 	api.Put("/recetas/:id", middleware.HasPermission("update_receta"), handlers.UpdateReceta)
 	api.Delete("/recetas/:id", middleware.HasPermission("delete_receta"), handlers.DeleteReceta)
 	api.Get("/recetas/:id", middleware.HasPermission("read_receta"), handlers.GetReceta)
+	api.Get("/recetas", middleware.HasPermission("read_receta"), handlers.GetAllRecetas)
 
 	// Ruta de prueba
 	api.Get("/saludo", middleware.HasPermission("read_usuario"), handlers.Saludo)
