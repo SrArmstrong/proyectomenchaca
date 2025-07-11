@@ -436,9 +436,14 @@ func GetUsuario(c *fiber.Ctx) error {
 		mensaje = "Usuario no encontrado con ID " + id
 
 		// Guardar log (usa go routine para no bloquear)
-		go func() {
-			_ = LogEvent(c.Context(), "/usuarios/"+id, "GET", usuarioPeticion, mensaje, c.IP(), c.Get("User-Agent"))
-		}()
+		ctx := c.Context()
+		ip := c.IP()
+		ua := c.Get("User-Agent")
+		ruta := "/usuarios/" + id
+
+		go func(ctx context.Context, ruta, metodo, user, msg, ip, ua string) {
+			_ = LogEvent(ctx, ruta, metodo, user, msg, ip, ua)
+		}(ctx, ruta, "GET", usuarioPeticion, mensaje, ip, ua)
 
 		// Responder error 404
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
