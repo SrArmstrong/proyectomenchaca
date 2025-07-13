@@ -124,11 +124,12 @@ func main() {
 	//medico := api.Group("", middleware.OnlyMedicoOrAdmin())
 
 	// Rutas de usuarios
+	api.Get("/usuarios/medicos", middleware.HasPermission("read_usuario"), handlers.GetMedicos)
+	api.Get("/usuarios/pacientes", middleware.HasPermission("read_usuario"), handlers.GetPacientes)
+
 	api.Get("/usuarios/:id", middleware.HasPermission("read_usuario"), handlers.GetUsuario)
 	api.Put("/usuarios/:id", middleware.HasPermission("update_usuario"), handlers.UpdateUsuario)
 	api.Delete("/usuarios/:id", middleware.HasPermission("delete_usuario"), handlers.DeleteUsuario)
-	api.Get("/usuarios/medicos", middleware.HasPermission("read_usuario"), handlers.GetMedicos)
-	api.Get("/usuarios/pacientes", middleware.HasPermission("read_usuario"), handlers.GetPacientes)
 
 	// Rutas de expedientes
 	api.Post("/expedientes", middleware.HasPermission("add_expediente"), handlers.CreateExpediente)
