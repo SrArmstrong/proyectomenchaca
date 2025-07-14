@@ -2,8 +2,12 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"proyectomenchaca/internal/models"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type Receta struct {
@@ -81,10 +85,32 @@ func GetReceta(c *fiber.Ctx) error {
 }
 
 func GetAllRecetas(c *fiber.Ctx) error {
-	query := `SELECT id_receta, id_consultorio, id_medico, id_paciente, fecha, medicamento, dosis 
-              FROM recetas ORDER BY fecha DESC`
+	token := c.Locals("user").(*jwt.Token)
+	claims := token.Claims.(*models.Claims)
 
-	rows, err := DB.Query(context.Background(), query)
+	rol := claims.Rol
+	idUsuario := claims.IDUsuario
+
+	fmt.Printf("Token claims - IDUsuario: %d, Rol: %s\n", idUsuario, rol)
+
+	var query string
+	var rows pgx.Rows
+	var err error
+
+	if rol == "paciente" {
+		query = `SELECT id_receta, id_consultorio, id_medico, id_paciente, fecha, medicamento, dosis
+                 FROM recetas WHERE id_paciente = $1 ORDER BY fecha DESC`
+		rows, err = DB.Query(context.Background(), query, idUsuario)
+	} else if rol == "medico" {
+		query = `SELECT id_receta, id_consultorio, id_medico, id_paciente, fecha, medicamento, dosis
+                 FROM recetas WHERE id_medico = $1 ORDER BY fecha DESC`
+		rows, err = DB.Query(context.Background(), query, idUsuario)
+	} else {
+		query = `SELECT id_receta, id_consultorio, id_medico, id_paciente, fecha, medicamento, dosis
+                 FROM recetas ORDER BY fecha DESC`
+		rows, err = DB.Query(context.Background(), query)
+	}
+
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Error al consultar las recetas",
@@ -113,7 +139,8 @@ func GetAllRecetas(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"data": recetas,
+		"data":  recetas,
+		"count": len(recetas),
 	})
 }
 

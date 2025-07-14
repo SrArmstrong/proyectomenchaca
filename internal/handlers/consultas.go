@@ -123,7 +123,6 @@ func GetAllConsultas(c *fiber.Ctx) error {
 	rol := claims.Rol
 	idUsuario := claims.IDUsuario
 
-	// Log para depuración
 	fmt.Printf("Token claims - IDUsuario: %d, Rol: %s\n", idUsuario, rol)
 
 	var query string
@@ -132,6 +131,9 @@ func GetAllConsultas(c *fiber.Ctx) error {
 
 	if rol == "paciente" {
 		query = `SELECT * FROM consultas WHERE id_paciente = $1 ORDER BY fecha DESC, hora DESC`
+		rows, err = DB.Query(context.Background(), query, idUsuario)
+	} else if rol == "medico" {
+		query = `SELECT * FROM consultas WHERE id_medico = $1 ORDER BY fecha DESC, hora DESC`
 		rows, err = DB.Query(context.Background(), query, idUsuario)
 	} else {
 		query = `SELECT * FROM consultas ORDER BY fecha DESC, hora DESC`
