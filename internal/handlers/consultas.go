@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"proyectomenchaca/internal/models"
 	"time"
 
@@ -122,6 +123,9 @@ func GetAllConsultas(c *fiber.Ctx) error {
 	rol := claims.Rol
 	idUsuario := claims.IDUsuario
 
+	// Log para depuración
+	fmt.Printf("Token claims - IDUsuario: %d, Rol: %s\n", idUsuario, rol)
+
 	var query string
 	var rows pgx.Rows
 	var err error
@@ -180,26 +184,72 @@ func GetAllConsultas(c *fiber.Ctx) error {
 
 func UpdateConsulta(c *fiber.Ctx) error {
 	id := c.Params("id")
-	var consulta Consulta
+	var requestData map[string]interface{}
 
-	if err := c.BodyParser(&consulta); err != nil {
+	if err := c.BodyParser(&requestData); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Datos inválidos",
+			"error": "Error al parsear datos: " + err.Error(),
+		})
+	}
+
+	// Validar campos requeridos
+	requiredFields := []string{"id_consultorio", "id_medico", "id_paciente", "tipo", "fecha", "hora", "diagnostico", "costo"}
+	for _, field := range requiredFields {
+		if _, exists := requestData[field]; !exists {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Campo requerido faltante: " + field,
+			})
+		}
+	}
+
+	// Convertir campos numéricos
+	idConsultorio, ok := requestData["id_consultorio"].(float64)
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "id_consultorio debe ser un número",
+		})
+	}
+
+	idMedico, ok := requestData["id_medico"].(float64)
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "id_medico debe ser un número",
+		})
+	}
+
+	idPaciente, ok := requestData["id_paciente"].(float64)
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "id_paciente debe ser un número",
+		})
+	}
+
+	costo, ok := requestData["costo"].(float64)
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "costo debe ser un número",
 		})
 	}
 
 	query := `UPDATE consultas 
-	          SET id_consultorio=$1, id_medico=$2, id_paciente=$3, tipo=$4, 
-	              fecha=$5, hora=$6, diagnostico=$7, costo=$8 
-	          WHERE id_consulta=$9`
+              SET id_consultorio=$1, id_medico=$2, id_paciente=$3, tipo=$4, 
+                  fecha=$5, hora=$6, diagnostico=$7, costo=$8 
+              WHERE id_consulta=$9`
 
 	_, err := DB.Exec(context.Background(), query,
-		consulta.IDConsultorio, consulta.IDMedico, consulta.IDPaciente,
-		consulta.Tipo, consulta.Fecha, consulta.Hora, consulta.Diagnostico, consulta.Costo, id)
+		int(idConsultorio),
+		int(idMedico),
+		int(idPaciente),
+		requestData["tipo"].(string),
+		requestData["fecha"].(string),
+		requestData["hora"].(string),
+		requestData["diagnostico"].(string),
+		costo,
+		id)
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Error al actualizar consulta",
+			"error": "Error al actualizar consulta: " + err.Error(),
 		})
 	}
 

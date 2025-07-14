@@ -11,28 +11,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Permite el acceso a administradores
-/*
-func OnlyAdmin() fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		user := c.Locals("user").(*jwt.Token)
-
-		claims, ok := user.Claims.(*models.Claims)
-		if !ok {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Claims inválidos"})
-		}
-
-		if claims.Rol != "admin" {
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-				"error": "Acceso denegado: se requiere rol admin",
-			})
-		}
-
-		return c.Next()
-	}
-}
-*/
-
 // HasPermission verifica si el usuario tiene un permiso específico
 func HasPermission(nombrePermiso string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
@@ -43,21 +21,16 @@ func HasPermission(nombrePermiso string) fiber.Handler {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Claims inválidos"})
 		}
 
-		rol := claims.Rol
-		db := handlers.GetDB()
+		// Verificar si el permiso está en la lista de permisos del token
+		permisoEncontrado := false
+		for _, permiso := range claims.Permisos {
+			if permiso == nombrePermiso {
+				permisoEncontrado = true
+				break
+			}
+		}
 
-		var exists bool
-		query := `
-			SELECT EXISTS (
-				SELECT 1
-				FROM roles_permisos_agrupados rpa
-				JOIN permisos p ON p.id_permiso = ANY(rpa.id_permisos)
-				WHERE rpa.rol = $1 AND p.nombre = $2
-			)
-`
-
-		err := db.QueryRow(context.Background(), query, rol, nombrePermiso).Scan(&exists)
-		if err != nil || !exists {
+		if !permisoEncontrado {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error": "Permiso denegado: " + nombrePermiso,
 			})
@@ -66,28 +39,6 @@ func HasPermission(nombrePermiso string) fiber.Handler {
 		return c.Next()
 	}
 }
-
-// Permite el acceso a médicos y administradores
-/*
-func OnlyMedicoOrAdmin() fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		user := c.Locals("user").(*jwt.Token)
-
-		claims, ok := user.Claims.(*models.Claims)
-		if !ok {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Claims inválidos"})
-		}
-
-		if claims.Rol != "admin" && claims.Rol != "medico" {
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-				"error": "Acceso denegado: se requiere rol medico o admin",
-			})
-		}
-
-		return c.Next()
-	}
-}
-*/
 
 // Permite el acceso a todos los usuarios que cuenten con un token
 func JWTProtected() fiber.Handler {

@@ -16,10 +16,12 @@ const (
 )
 
 // CrearTokens genera un accessToken y refreshToken personalizados para el usuario
-func CrearTokens(id int, nombre, rol string) (accessToken, refreshToken string, err error) {
+func CrearTokens(id int, nombre, rol string, permisos []string) (accessToken, refreshToken string, err error) {
 	accessClaims := models.Claims{
-		Nombre: nombre,
-		Rol:    rol,
+		IDUsuario: id,
+		Nombre:    nombre,
+		Rol:       rol,
+		Permisos:  permisos,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   strconv.Itoa(id),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(AccessTokenExpiry)),
@@ -32,8 +34,9 @@ func CrearTokens(id int, nombre, rol string) (accessToken, refreshToken string, 
 	}
 
 	refreshClaims := models.Claims{
-		Nombre: nombre,
-		Rol:    rol,
+		Nombre:   nombre,
+		Rol:      rol,
+		Permisos: permisos,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   strconv.Itoa(id),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenExpiry)),

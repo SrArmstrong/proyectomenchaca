@@ -8,6 +8,7 @@ import (
 	"proyectomenchaca/internal/utils"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -36,15 +37,6 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
-	/* Función para ver los datos que se reciben
-	jsonBytes, err := json.MarshalIndent(datos, "", "  ")
-	if err != nil {
-		log.Println("Error al serializar datos:", err)
-	} else {
-		log.Println("Datos recibidos en login:", string(jsonBytes))
-	}
-	*/
-
 	ip := c.IP()
 	userAgent := c.Get("User-Agent")
 
@@ -52,12 +44,12 @@ func Login(c *fiber.Ctx) error {
 
 	// Validación del usuario
 	err := DB.QueryRow(context.Background(),
-		//err = DB.QueryRow(context.Background(), Cambiar en caso de verificar datos recibidos
 		`SELECT id_usuario, nombre, password, rol, secret_totp 
          FROM usuarios WHERE correo = $1`, datos.Correo).Scan(
 		&usuario.ID, &usuario.Nombre, &usuario.Password, &usuario.Rol, &usuario.SecretTOTP)
 
 	if err != nil {
+		log.Printf("Error al buscar usuario: %v", err)
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"Int_Code":   "F",
 			"StatusCode": fiber.StatusUnauthorized,
@@ -71,29 +63,23 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
-	// Obtener permisos asociados al rol del usuario
-	rows, err := DB.Query(context.Background(), `
-	SELECT p.nombre
-	FROM roles_permisos_agrupados rpa
-	JOIN permisos p ON p.id_permiso = ANY(rpa.id_permisos)
-	WHERE rpa.rol = $1
-`, usuario.Rol)
-
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Error al obtener permisos",
+	// Verificar contraseña antes de continuar
+	if err := bcrypt.CompareHashAndPassword([]byte(usuario.Password), []byte(datos.Password)); err != nil {
+		log.Printf("Error de contraseña para usuario %s: %v", datos.Correo, err)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"Int_Code":   "F",
+			"StatusCode": fiber.StatusUnauthorized,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Credenciales inválidas",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
 		})
 	}
 
-	var permisos []string
-	for rows.Next() {
-		var permiso string
-		if err := rows.Scan(&permiso); err == nil {
-			permisos = append(permisos, permiso)
-		}
-	}
-	rows.Close()
-
+	// Validar código TOTP
 	valid, err := totp.ValidateCustom(datos.CodigoTOTP, usuario.SecretTOTP, time.Now(), totp.ValidateOpts{
 		Period:    30,
 		Skew:      2,
@@ -101,6 +87,7 @@ func Login(c *fiber.Ctx) error {
 		Algorithm: otp.AlgorithmSHA1,
 	})
 	if err != nil {
+		log.Printf("Error validando TOTP: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"Int_Code":   "E",
 			"StatusCode": fiber.StatusInternalServerError,
@@ -115,6 +102,7 @@ func Login(c *fiber.Ctx) error {
 	}
 
 	if !valid {
+		log.Printf("Código TOTP inválido para usuario %s", datos.Correo)
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"Int_Code":   "F",
 			"StatusCode": fiber.StatusUnauthorized,
@@ -128,13 +116,22 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(usuario.Password), []byte(datos.Password)); err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"Int_Code":   "F",
-			"StatusCode": fiber.StatusUnauthorized,
+	// Obtener permisos asociados al rol del usuario
+	rows, err := DB.Query(context.Background(), `
+		SELECT p.nombre
+		FROM roles_permisos_agrupados rpa
+		JOIN permisos p ON p.id_permiso = ANY(rpa.id_permisos)
+		WHERE rpa.rol = $1
+	`, usuario.Rol)
+
+	if err != nil {
+		log.Printf("Error al obtener permisos: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"Int_Code":   "E",
+			"StatusCode": fiber.StatusInternalServerError,
 			"Data": []map[string]interface{}{
 				{
-					"mensaje":          "Credenciales inválidas",
+					"mensaje":          "Error al obtener permisos",
 					"timestamp":        time.Now().Format(time.RFC3339),
 					"tiempo_respuesta": time.Since(inicio).String(),
 				},
@@ -142,8 +139,19 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
-	accessToken, refreshToken, err := utils.CrearTokens(usuario.ID, usuario.Nombre, usuario.Rol)
+	var permisos []string
+	for rows.Next() {
+		var permiso string
+		if err := rows.Scan(&permiso); err == nil {
+			permisos = append(permisos, permiso)
+		}
+	}
+	rows.Close()
+
+	// Generar tokens
+	accessToken, refreshToken, err := utils.CrearTokens(usuario.ID, usuario.Nombre, usuario.Rol, permisos)
 	if err != nil {
+		log.Printf("Error generando tokens: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"Int_Code":   "E",
 			"StatusCode": fiber.StatusInternalServerError,
@@ -157,12 +165,68 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
-	_, err = DB.Exec(context.Background(),
+	// Comenzar transacción para operaciones de base de datos
+	tx, err := DB.Begin(context.Background())
+	if err != nil {
+		log.Printf("Error iniciando transacción: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"Int_Code":   "E",
+			"StatusCode": fiber.StatusInternalServerError,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Error interno del servidor",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
+	}
+
+	// Revocar tokens anteriores del usuario (opcional)
+	_, err = tx.Exec(context.Background(),
+		`UPDATE refresh_tokens SET revocado = true WHERE usuario_id = $1 AND revocado = false`,
+		usuario.ID)
+	if err != nil {
+		log.Printf("Error revocando tokens anteriores: %v", err)
+		tx.Rollback(context.Background())
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"Int_Code":   "E",
+			"StatusCode": fiber.StatusInternalServerError,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Error al procesar sesión",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
+	}
+
+	// Insertar nuevo refresh token
+	_, err = tx.Exec(context.Background(),
 		`INSERT INTO refresh_tokens (usuario_id, token, fecha_creacion, fecha_expiracion, revocado, direccion_ip, user_agent)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		usuario.ID, refreshToken, time.Now(), time.Now().Add(7*24*time.Hour), false, ip, userAgent)
 
 	if err != nil {
+		log.Printf("Error al guardar refresh token: %v", err)
+		tx.Rollback(context.Background())
+
+		// Verificar si es un error de constraint o tabla
+		if strings.Contains(err.Error(), "does not exist") {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"Int_Code":   "E",
+				"StatusCode": fiber.StatusInternalServerError,
+				"Data": []map[string]interface{}{
+					{
+						"mensaje":          "Error de configuración de base de datos",
+						"timestamp":        time.Now().Format(time.RFC3339),
+						"tiempo_respuesta": time.Since(inicio).String(),
+					},
+				},
+			})
+		}
+
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"Int_Code":   "E",
 			"StatusCode": fiber.StatusInternalServerError,
@@ -176,7 +240,24 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
-	// Éxito
+	// Confirmar transacción
+	if err = tx.Commit(context.Background()); err != nil {
+		log.Printf("Error confirmando transacción: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"Int_Code":   "E",
+			"StatusCode": fiber.StatusInternalServerError,
+			"Data": []map[string]interface{}{
+				{
+					"mensaje":          "Error al confirmar sesión",
+					"timestamp":        time.Now().Format(time.RFC3339),
+					"tiempo_respuesta": time.Since(inicio).String(),
+				},
+			},
+		})
+	}
+
+	// Éxito - Login completado
+	log.Printf("Login exitoso para usuario: %s (ID: %d)", datos.Correo, usuario.ID)
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"Int_Code":   "S",
 		"StatusCode": fiber.StatusOK,
@@ -188,6 +269,11 @@ func Login(c *fiber.Ctx) error {
 				"access_token":     accessToken,
 				"refresh_token":    refreshToken,
 				"permisos":         permisos,
+				"usuario": map[string]interface{}{
+					"id":     usuario.ID,
+					"nombre": usuario.Nombre,
+					"rol":    usuario.Rol,
+				},
 			},
 		},
 	})
@@ -230,7 +316,7 @@ func RefreshToken(c *fiber.Ctx) error {
 
 	// Generar nuevos tokens
 	usuarioID, _ := strconv.Atoi(claims.Subject)
-	newAccess, newRefresh, err := utils.CrearTokens(usuarioID, claims.Nombre, claims.Rol)
+	newAccess, newRefresh, err := utils.CrearTokens(usuarioID, claims.Nombre, claims.Rol, claims.Permisos)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Error generando nuevos tokens",

@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"proyectomenchaca/internal/models"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Horario struct {
@@ -44,30 +46,81 @@ func CreateHorario(c *fiber.Ctx) error {
 }
 
 func GetAllHorarios(c *fiber.Ctx) error {
-	query := `SELECT id_horario, id_consultorio, id_medico, id_consulta, turno, dia FROM horarios`
+	// Obtener información del usuario desde el token
+	token := c.Locals("user").(*jwt.Token)
+	claims := token.Claims.(*models.Claims)
+	rol := claims.Rol
+	idUsuario := claims.IDUsuario
 
-	rows, err := DB.Query(context.Background(), query)
+	var query string
+	var args []interface{}
+	var err error
+
+	// Construir la consulta según el rol del usuario
+	switch rol {
+	case "paciente":
+		// Paciente: solo horarios de sus consultas
+		query = `
+            SELECT h.id_horario, h.id_consultorio, h.id_medico, h.id_consulta, h.turno, h.dia 
+            FROM horarios h
+            JOIN consultas c ON h.id_consulta = c.id_consulta
+            WHERE c.id_paciente = $1
+            ORDER BY h.dia, h.turno`
+		args = []interface{}{idUsuario}
+
+	case "medico":
+		// Médico: solo sus horarios
+		query = `
+            SELECT id_horario, id_consultorio, id_medico, id_consulta, turno, dia 
+            FROM horarios 
+            WHERE id_medico = $1
+            ORDER BY dia, turno`
+		args = []interface{}{idUsuario}
+
+	case "admin", "enfermera":
+		// Admin y Enfermera: todos los horarios
+		query = `
+            SELECT id_horario, id_consultorio, id_medico, id_consulta, turno, dia 
+            FROM horarios 
+            ORDER BY dia, turno`
+
+	default:
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "No tienes permisos para ver horarios",
+		})
+	}
+
+	// Ejecutar la consulta
+	rows, err := DB.Query(context.Background(), query, args...)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Error al obtener los horarios",
+			"error":   "Error al obtener los horarios",
+			"details": err.Error(),
 		})
 	}
 	defer rows.Close()
 
 	var horarios []Horario
-
 	for rows.Next() {
 		var h Horario
 		err := rows.Scan(&h.IDHorario, &h.IDConsultorio, &h.IDMedico, &h.IDConsulta, &h.Turno, &h.Dia)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Error al procesar los datos",
+				"error":   "Error al procesar los datos",
+				"details": err.Error(),
 			})
 		}
 		horarios = append(horarios, h)
 	}
 
-	// Return the array directly instead of wrapping in an object
+	// Verificar errores después de iterar
+	if err := rows.Err(); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Error después de leer horarios",
+			"details": err.Error(),
+		})
+	}
+
 	return c.JSON(horarios)
 }
 
