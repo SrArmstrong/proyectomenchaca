@@ -7,6 +7,7 @@ import (
 )
 
 type Horario struct {
+	IDHorario     int    `json:"id_horario"`
 	IDConsultorio int    `json:"id_consultorio"`
 	IDMedico      int    `json:"id_medico"`
 	IDConsulta    int    `json:"id_consulta"`
@@ -40,6 +41,34 @@ func CreateHorario(c *fiber.Ctx) error {
 		"id":      id,
 		"mensaje": "Horario creado correctamente",
 	})
+}
+
+func GetAllHorarios(c *fiber.Ctx) error {
+	query := `SELECT id_horario, id_consultorio, id_medico, id_consulta, turno, dia FROM horarios`
+
+	rows, err := DB.Query(context.Background(), query)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al obtener los horarios",
+		})
+	}
+	defer rows.Close()
+
+	var horarios []Horario
+
+	for rows.Next() {
+		var h Horario
+		err := rows.Scan(&h.IDHorario, &h.IDConsultorio, &h.IDMedico, &h.IDConsulta, &h.Turno, &h.Dia)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Error al procesar los datos",
+			})
+		}
+		horarios = append(horarios, h)
+	}
+
+	// Return the array directly instead of wrapping in an object
+	return c.JSON(horarios)
 }
 
 func GetHorario(c *fiber.Ctx) error {

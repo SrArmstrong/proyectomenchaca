@@ -132,11 +132,11 @@ func main() {
 	api.Delete("/usuarios/:id", middleware.HasPermission("delete_usuario"), handlers.DeleteUsuario)
 
 	// Rutas de expedientes
+	api.Get("/expedientes", middleware.HasPermission("read_expediente"), handlers.GetAllExpedientes)
 	api.Post("/expedientes", middleware.HasPermission("add_expediente"), handlers.CreateExpediente)
 	api.Put("/expedientes/:id", middleware.HasPermission("update_expediente"), handlers.UpdateExpediente)
 	api.Delete("/expedientes/:id", middleware.HasPermission("delete_expediente"), handlers.DeleteExpediente)
 	api.Get("/expedientes/:id", middleware.HasPermission("read_expediente"), handlers.GetExpediente)
-	api.Get("/expedientes", middleware.HasPermission("read_expediente"), handlers.GetAllExpedientes)
 
 	// Rutas de consultorios
 	api.Post("/consultorios", middleware.HasPermission("add_consultorio"), handlers.CreateConsultorio)
@@ -146,13 +146,14 @@ func main() {
 	api.Delete("/consultorios/:id", middleware.HasPermission("delete_consultorio"), handlers.DeleteConsultorio)
 
 	// Rutas de consultas
+	api.Get("/consultas", middleware.HasPermission("read_consulta"), handlers.GetAllConsultas)
 	api.Post("/consultas", middleware.HasPermission("add_consulta"), handlers.CreateConsulta)
 	api.Put("/consultas/:id", middleware.HasPermission("update_consulta"), handlers.UpdateConsulta)
 	api.Delete("/consultas/:id", middleware.HasPermission("delete_consulta"), handlers.DeleteConsulta)
 	api.Get("/consultas/:id", middleware.HasPermission("read_consulta"), handlers.GetConsulta)
-	api.Get("/consultas", middleware.HasPermission("read_consulta"), handlers.GetAllConsultas)
 
 	// Rutas de horarios
+	api.Get("/horarios", middleware.HasPermission("read_horario"), handlers.GetAllHorarios)
 	api.Post("/horarios", middleware.HasPermission("add_horario"), handlers.CreateHorario)
 	api.Put("/horarios/:id", middleware.HasPermission("update_horario"), handlers.UpdateHorario)
 	api.Delete("/horarios/:id", middleware.HasPermission("delete_horario"), handlers.DeleteHorario)

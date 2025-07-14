@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"proyectomenchaca/internal/models"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -53,6 +54,31 @@ func CreateConsulta(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Error al crear consulta",
+		})
+	}
+
+	// Determinar turno
+	turno := ""
+	horaParsed, err := time.Parse("15:04", consulta.Hora)
+	if err == nil {
+		if horaParsed.Hour() >= 9 && horaParsed.Hour() <= 14 {
+			turno = "matutino"
+		} else if horaParsed.Hour() >= 15 && horaParsed.Hour() <= 22 {
+			turno = "vespertino"
+		}
+	}
+
+	// Insertar en horarios
+	queryHorarios := `INSERT INTO horarios 
+						(id_consultorio, id_medico, id_consulta, dia, turno)
+						VALUES ($1, $2, $3, $4, $5)`
+
+	_, err = DB.Exec(context.Background(), queryHorarios,
+		consulta.IDConsultorio, consulta.IDMedico, id, consulta.Fecha, turno)
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al registrar horario",
 		})
 	}
 
